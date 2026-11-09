@@ -58,6 +58,27 @@ A simulated 4.6 × 3.7 × 2.55 m room with four pieces of furniture, scanned fro
 
 Technical details are under [How it works (technical)](#how-it-works-technical).
 
+## Improvements and status
+
+Simulation numbers are the mean room-volume error in the [benchmark](#test-results-simulator) scenario the change targets (details in [PROGRESS.md](PROGRESS.md)). Nothing has been tested on real hardware yet.
+
+| Improvement | Confirmed in simulation | Effect in simulation | Status |
+|---|---|---|---|
+| Floor/ceiling height from the top of the histogram peak; flood fill starts from the biggest free area near the scanner | ✅ | noise 2 cm + 1 %: −99.9 % → −15.4 % | ✅ Done |
+| Range noise smoothing (3×3 median over neighbouring beams); floor plan reaches the wall pixel centres | ✅ | noise 2 cm + 1 %: −15.4 % → −2.0 % | ✅ Done |
+| Automatic servo calibration on a flat wall (`kalibreeri`) | ✅ also against a simulated ESP32 | servo 3 % off: −8.7 % → −1.4 % | ✅ Done, not tried on hardware |
+| Flying-point filter (beam half on an edge) | ✅ | beam 2°: −3.5 % → −1.7 %, furniture 3.33 → 4.06 m³ | ✅ Done |
+| Benchmark with real-world error scenarios (`benchmark.py`) | ✅ (it is the test) | – | ✅ Done |
+| Firmware: snake scan uses the same tilt angles in both directions | – not simulated | – | ✅ Done, compile not checked |
+| More simulated rooms (L-shaped, 6 × 5 m) so fixes aren't tuned to one room | ❌ | – | 🔜 Next |
+| Floor plan boundary at the middle of the wall points, not their inner edge | ❌ | estimate: all errors −4 % → about −1 % | 🔜 Next |
+| Measure registration error in the benchmark (the simulator knows the true poses) | ❌ | – | 📋 Planned |
+| Real hardware test: measure TF-Luna noise, scan a tape-measured room | ❌ | – | 📋 Planned |
+| Calibration sweeps in both directions (cancels backlash in the level angle) | ❌ | estimate: about 0.5 % | 💡 Idea |
+| Firmware: 5 instead of 3 readings per point | ❌ | noise about 1.3× lower, scan about 25 % slower | 💡 Idea |
+| Stop a scan cleanly if the ESP32 resets mid-scan (`READY` line) | ❌ | – | 💡 Idea |
+| Save the calibration to a file instead of passing it to `arvuta` every time | ❌ | – | 💡 Idea |
+
 ## Folders
 
 ```
