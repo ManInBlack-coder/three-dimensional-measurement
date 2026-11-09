@@ -26,8 +26,8 @@
 
   Mechanics
     - The LiDAR must point straight ahead when the tilt servo is at TILT_HORIZON degrees.
-      Calibrate: send the command "TILT <angle>" and find the angle at which the
-      LiDAR is level (spirit level). Put that value into ruumala.py (--tilt-horizon).
+      Calibrate: `python ruumala.py kalibreeri` with the scanner ~1 m in front of a flat
+      wall measures the exact level angle and both servos' scale.
     - The scanner must stand level (base horizontal).
 
   Library: Arduino Library Manager -> "ESP32Servo" (Kevin Harrington).

@@ -38,9 +38,9 @@ The resulting 3D file (tuba.ply) can be opened e.g. in the free program CloudCom
 
 import argparse
 
-from analysis import analyze
-from scanner import cmd_calibrate, cmd_scan
-from simulator import cmd_simulate
+from processing.analysis import analyze
+from hardware.scanner import cmd_calibrate, cmd_scan
+from simulation.simulator import cmd_simulate
 
 # ======================================================================
 # Settings (defaults, most can be changed from the command line)
@@ -48,6 +48,8 @@ from simulator import cmd_simulate
 DEFAULTS = dict(
     tilt_horizon=60.0,   # tilt servo angle at which the LiDAR is level
     tilt_dir=1.0,        # +1: larger tilt angle = beam points up, -1 the opposite
+    pan_scale=1.0,       # real degrees per commanded degree (servos are rarely exact); `kalibreeri` measures
+    tilt_scale=1.0,      # these two and tilt_horizon
     axis_height=0.06,    # height of the tilt axis above the pan axis (m)
     lidar_offset=0.02,   # distance from the tilt axis to the LiDAR front face (m)
     min_range=0.20,      # closest reliable TF-Luna distance (m)
@@ -67,6 +69,10 @@ def main():
                    help="tilt-servo nurk, mille juures LiDAR on loodis")
     p.add_argument("--tilt-dir", type=float, default=DEFAULTS["tilt_dir"],
                    help="+1 või -1, kui tilt pöörab vastupidi")
+    p.add_argument("--pan-skaala", type=float, default=DEFAULTS["pan_scale"],
+                   help="pan-servo tegelik pööre käsitud kraadi kohta (kalibreeri annab selle)")
+    p.add_argument("--tilt-skaala", type=float, default=DEFAULTS["tilt_scale"],
+                   help="tilt-servo tegelik pööre käsitud kraadi kohta (kalibreeri annab selle)")
     p.add_argument("--samm", type=int, default=2, help="skaneerimise samm kraadides")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -75,7 +81,7 @@ def main():
     s.add_argument("--nimi", required=True, help="nt asukoht1")
     s.add_argument("--kaust", default="skaneeringud")
 
-    c = sub.add_parser("kalibreeri", help="leia tilt-servo loodinurk")
+    c = sub.add_parser("kalibreeri", help="mõõda tasase seina abil loodinurk ja servode skaala")
     c.add_argument("--port", required=True)
 
     a = sub.add_parser("arvuta", help="ühenda skaneeringud ja arvuta ruumala")
@@ -91,6 +97,8 @@ def main():
     cfg = dict(DEFAULTS)
     cfg["tilt_horizon"] = args.tilt_horizon
     cfg["tilt_dir"] = args.tilt_dir
+    cfg["pan_scale"] = args.pan_skaala
+    cfg["tilt_scale"] = args.tilt_skaala
     cfg["pan_step"] = cfg["tilt_step"] = args.samm
 
     if args.cmd == "skanni":

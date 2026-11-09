@@ -6,7 +6,7 @@ import numpy as np
 from scipy import ndimage
 from scipy.spatial import cKDTree
 
-from geometry import DepthView, apply, make_T, normals, rz, voxel_down
+from .geometry import DepthView, apply, find_floor_ceiling, make_T, normals, rz, voxel_down
 
 
 # ======================================================================
@@ -46,7 +46,7 @@ def icp_4dof(src, tgt, tgt_n, T0, iters=40, max_d=(0.4, 0.2, 0.1, 0.06), dof=(0,
 def band_points(P, band=(0.45, 0.08)):
     """Points near the ceiling (above the furniture), in top view."""
     z = P[:, 2]
-    ceil = np.percentile(z, 99.5)
+    ceil = find_floor_ceiling(P)[1]
     sel = (z > ceil - band[0]) & (z < ceil - band[1])
     return P[sel, :2]
 

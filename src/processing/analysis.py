@@ -8,28 +8,13 @@ import sys
 import numpy as np
 from scipy import ndimage
 
-from geometry import DepthView, load_scan_csv, level_scan, make_T, normals, rz, voxel_down
-from registration import register_all
+from .geometry import DepthView, find_floor_ceiling, load_scan_csv, level_scan, make_T, normals, rz, voxel_down
+from .registration import register_all
 
 
 # ======================================================================
 # 4. Analysis: floor, ceiling, floor plan, volume, free air
 # ======================================================================
-def find_floor_ceiling(P):
-    D = voxel_down(P, 0.03)
-    n = normals(D)
-    hz = D[np.abs(n[:, 2]) > 0.9, 2]
-    bins = np.arange(hz.min() - 0.02, hz.max() + 0.04, 0.02)
-    h, e = np.histogram(hz, bins)
-    h = ndimage.uniform_filter1d(h.astype(float), 3)
-    strong = np.where(h >= 0.15 * h.max())[0]
-    centers = (e[:-1] + e[1:]) / 2
-    floor_c, ceil_c = centers[strong.min()], centers[strong.max()]
-    floor = np.median(hz[np.abs(hz - floor_c) < 0.04])
-    ceil = np.median(hz[np.abs(hz - ceil_c) < 0.04])
-    return floor, ceil
-
-
 def footprint(P, origins, ceil, res=0.025, band=(0.45, 0.08), close_m=0.25):
     xy = P[(P[:, 2] > ceil - band[0]) & (P[:, 2] < ceil - band[1]), :2]
     org = np.minimum(xy.min(axis=0), origins[:, :2].min(axis=0)) - 0.5
@@ -39,6 +24,7 @@ def footprint(P, origins, ceil, res=0.025, band=(0.45, 0.08), close_m=0.25):
     ij = np.floor((xy - org) / res).astype(int)
     walls[ij[:, 0], ij[:, 1]] = True
     seeds = np.floor((origins[:, :2] - org) / res).astype(int)
+    near = int(0.5 / res)  # seed = biggest free area within 0.5 m: noisy ceiling hits above the scanner can block its own pixel
     st = ndimage.generate_binary_structure(2, 1)
     dist_to_wall = ndimage.distance_transform_edt(~walls)
     # Walls are "inflated" by r so that holes (windows, sparse areas) close up.
@@ -47,12 +33,16 @@ def footprint(P, origins, ceil, res=0.025, band=(0.45, 0.08), close_m=0.25):
     for cm in [close_m] + [c for c in (0.4, 0.6, 0.8, 1.0) if c > close_m]:
         r = cm / 2 / res
         lab, _ = ndimage.label(dist_to_wall > r, st)
-        ids = {lab[i, j] for i, j in seeds if lab[i, j] > 0}
+        ids = set()
+        for i, j in seeds:
+            win = lab[max(i - near, 0):i + near + 1, max(j - near, 0):j + near + 1]
+            if win.any():
+                ids.add(np.bincount(win[win > 0]).argmax())
         core = np.isin(lab, list(ids))
         leak = core[0].any() or core[-1].any() or core[:, 0].any() or core[:, -1].any()
         if not leak:
             break
-    inside = ndimage.distance_transform_edt(~core) <= r + 0.5
+    inside = ndimage.distance_transform_edt(~core) <= r + 1  # up to the wall pixel centres
     area = inside.sum() * res * res
     fp = inside
     return dict(area=area, mask=fp, inside=inside, org=org, res=res, leak=leak, wall_xy=xy, close=cm)

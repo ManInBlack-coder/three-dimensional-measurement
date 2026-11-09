@@ -2,6 +2,7 @@
 
 import math
 import os
+import warnings
 
 import numpy as np
 from scipy import ndimage
@@ -45,15 +46,54 @@ class Scan:
         return apply(self.T, self.origin_local[None])[0]
 
 
+def smooth_ranges(pan, tilt, r, max_jump=0.2):
+    """3×3 median over the scan grid (neighbouring beams usually hit the same surface).
+    Cuts range noise ~2×. A point only takes the median if it is within max_jump of it,
+    so object edges stay where they are. NaN = no measurement."""
+    _, i = np.unique(pan, return_inverse=True)
+    _, j = np.unique(tilt, return_inverse=True)
+    g = np.full((i.max() + 3, j.max() + 3), np.nan)
+    g[i + 1, j + 1] = r
+    with warnings.catch_warnings():  # windows with no valid measurement
+        warnings.simplefilter("ignore", RuntimeWarning)
+        med = np.nanmedian(np.lib.stride_tricks.sliding_window_view(g, (3, 3)), axis=(2, 3))[i, j]
+    return np.where(np.abs(med - r) < max_jump, med, r)
+
+
+def veil_points(pan, tilt, P, d, max_incidence=75.0):
+    """Flying points: a ~2° wide beam that half-hits an edge returns an average of the near and
+    the far surface, i.e. a point floating in between. Together they form a "veil" that runs along
+    the beams, so they look like a surface seen almost edge-on. Surface direction comes from the
+    nearer grid neighbour on each axis, so real edge points (one close neighbour) are kept.
+    ponytail: also drops floor/ceiling seen at < 15° (≈ 5 m away), other positions cover those."""
+    _, i = np.unique(pan, return_inverse=True)
+    _, j = np.unique(tilt, return_inverse=True)
+    G = np.full((i.max() + 3, j.max() + 3, 3), np.nan)
+    G[i + 1, j + 1] = P
+
+    def tangent(fwd, back):
+        f, b = fwd - P, P - back
+        nf = np.nan_to_num(np.linalg.norm(f, axis=1), nan=np.inf)
+        nb = np.nan_to_num(np.linalg.norm(b, axis=1), nan=np.inf)
+        return np.where((nf <= nb)[:, None], f, b)
+
+    n = np.cross(tangent(G[i + 2, j + 1], G[i, j + 1]), tangent(G[i + 1, j + 2], G[i + 1, j]))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        cos_inc = np.abs(np.sum(n * d, axis=1)) / np.linalg.norm(n, axis=1)
+    return cos_inc < math.cos(math.radians(max_incidence))  # NaN (no neighbours) -> kept
+
+
 def raw_to_points(pan, tilt, dist_cm, amp, cfg):
     r = dist_cm / 100.0
     ok = (r >= cfg["min_range"]) & (r <= cfg["max_range"]) & (amp >= cfg["min_amp"])
-    th = np.radians(pan[ok])
-    ph = np.radians((tilt[ok] - cfg["tilt_horizon"]) * cfg["tilt_dir"])
-    rr = r[ok] + cfg["lidar_offset"]
+    r = smooth_ranges(pan, tilt, np.where(ok, r, np.nan)) + cfg["lidar_offset"]
+    th = np.radians(90 + (pan - 90) * cfg["pan_scale"])
+    ph = np.radians((tilt - cfg["tilt_horizon"]) * cfg["tilt_dir"] * cfg["tilt_scale"])
     d = np.stack([np.cos(ph) * np.cos(th), np.cos(ph) * np.sin(th), np.sin(ph)], axis=1)
     axis = np.array([0, 0, cfg["axis_height"]])
-    return axis + rr[:, None] * d, axis
+    P = axis + r[:, None] * d  # NaN where there is no measurement
+    ok &= ~veil_points(pan, tilt, P, d)
+    return P[ok], axis
 
 
 def load_scan_csv(path, cfg):
@@ -129,6 +169,28 @@ def level_scan(scan):
     R = np.eye(3) + math.sin(ang) * K + (1 - math.cos(ang)) * K @ K
     scan.local = (scan.local - scan.origin_local) @ R.T + scan.origin_local
     return tilt
+
+
+def find_floor_ceiling(P):
+    """Heights of the lowest and the highest large horizontal surface (floor, ceiling)."""
+    D = voxel_down(P, 0.03)
+    n = normals(D)
+    hz = D[np.abs(n[:, 2]) > 0.9, 2]
+    bins = np.arange(hz.min() - 0.02, hz.max() + 0.04, 0.02)
+    h, e = np.histogram(hz, bins)
+    h = ndimage.uniform_filter1d(h.astype(float), 3)
+    strong = np.where(h >= 0.15 * h.max())[0]
+    # The outermost strong bins sit on the noisy outer edges of the floor and ceiling peaks;
+    # climb to the top of each peak, otherwise noise pushes the floor down and the ceiling up.
+    lo, hi = strong.min(), strong.max()
+    while lo + 1 < len(h) and h[lo + 1] >= h[lo]:
+        lo += 1
+    while hi > 0 and h[hi - 1] >= h[hi]:
+        hi -= 1
+    centers = (e[:-1] + e[1:]) / 2
+    floor = np.median(hz[np.abs(hz - centers[lo]) < 0.04])
+    ceil = np.median(hz[np.abs(hz - centers[hi]) < 0.04])
+    return floor, ceil
 
 
 class DepthView:
