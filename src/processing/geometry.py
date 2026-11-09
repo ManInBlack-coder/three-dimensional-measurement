@@ -131,6 +131,28 @@ def level_scan(scan):
     return tilt
 
 
+def find_floor_ceiling(P):
+    """Heights of the lowest and the highest large horizontal surface (floor, ceiling)."""
+    D = voxel_down(P, 0.03)
+    n = normals(D)
+    hz = D[np.abs(n[:, 2]) > 0.9, 2]
+    bins = np.arange(hz.min() - 0.02, hz.max() + 0.04, 0.02)
+    h, e = np.histogram(hz, bins)
+    h = ndimage.uniform_filter1d(h.astype(float), 3)
+    strong = np.where(h >= 0.15 * h.max())[0]
+    # The outermost strong bins sit on the noisy outer edges of the floor and ceiling peaks;
+    # climb to the top of each peak, otherwise noise pushes the floor down and the ceiling up.
+    lo, hi = strong.min(), strong.max()
+    while lo + 1 < len(h) and h[lo + 1] >= h[lo]:
+        lo += 1
+    while hi > 0 and h[hi - 1] >= h[hi]:
+        hi -= 1
+    centers = (e[:-1] + e[1:]) / 2
+    floor = np.median(hz[np.abs(hz - centers[lo]) < 0.04])
+    ceil = np.median(hz[np.abs(hz - centers[hi]) < 0.04])
+    return floor, ceil
+
+
 class DepthView:
     """A scan's "depth image": the distance measured in each direction.
     Used to tell whether a point lies in an area the scanner saw as empty."""

@@ -63,13 +63,18 @@ Technical details are under [How it works (technical)](#how-it-works-technical).
 ```
 three-dim/
 ├── esp32/lidar_skanner/lidar_skanner.ino   ESP32 firmware
-├── src/ruumala.py                          CLI (entry point) + default settings
-├── src/geometry.py                         raw data -> 3D points, levelling, helpers
-├── src/registration.py                     aligning scans from different positions
-├── src/analysis.py                         floor, ceiling, floor plan, volumes, output
-├── src/scanner.py                          serial link to the ESP32
-├── src/simulator.py                        test data without hardware
-├── src/requirements.txt
+├── src/
+│   ├── ruumala.py                          RUN: all commands (scan, calibrate, compute, simulate)
+│   ├── benchmark.py                        RUN: accuracy over many simulated scans
+│   ├── processing/                         measurements -> result
+│   │   ├── geometry.py                     raw data -> 3D points, levelling, floor/ceiling, helpers
+│   │   ├── registration.py                 aligning scans from different positions
+│   │   └── analysis.py                     floor plan, volumes, output files
+│   ├── hardware/
+│   │   └── scanner.py                      serial link to the ESP32
+│   ├── simulation/
+│   │   └── simulator.py                    test data without hardware (+ optional servo/LiDAR errors)
+│   └── requirements.txt
 └── examp/                                  example result from a simulated room
 ```
 
@@ -114,6 +119,7 @@ cd src
 # 0) try it first without hardware (simuleeri = simulate, arvuta = compute)
 python ruumala.py simuleeri
 python ruumala.py arvuta sim_skaneeringud
+python benchmark.py          # accuracy over many simulated scans, with servo/LiDAR errors (~5 min)
 
 # 1) calibrate (once)
 python ruumala.py kalibreeri --port COM3

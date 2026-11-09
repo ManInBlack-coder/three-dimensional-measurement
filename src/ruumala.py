@@ -38,9 +38,9 @@ The resulting 3D file (tuba.ply) can be opened e.g. in the free program CloudCom
 
 import argparse
 
-from analysis import analyze
-from scanner import cmd_calibrate, cmd_scan
-from simulator import cmd_simulate
+from processing.analysis import analyze
+from hardware.scanner import cmd_calibrate, cmd_scan
+from simulation.simulator import cmd_simulate
 
 # ======================================================================
 # Settings (defaults, most can be changed from the command line)

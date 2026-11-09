@@ -6,7 +6,7 @@ import os
 
 import numpy as np
 
-from geometry import rz
+from processing.geometry import rz
 
 
 # ======================================================================
@@ -21,6 +21,16 @@ SIM_ROOM = dict(
         (0.3, 1.5, 0.0, 1.1, 2.6, 0.75),   # chest of drawers/table
         (3.3, 1.2, 0.0, 3.8, 1.7, 1.1),    # shelf
     ],
+)
+
+# Real-world error sources. Defaults = the original idealised simulator; benchmark.py turns them on.
+SIM_ERRORS = dict(
+    noise=0.015,     # distance noise, std (m)
+    noise_rel=0.0,   # + this share of the distance (TF-Luna spec: ±2 % beyond 3 m)
+    backlash=0.0,    # tilt servo gear play (°); the snake scan approaches it from alternating sides
+    jitter=0.0,      # random servo angle error per point, std (°)
+    scale=0.0,       # servo travel error: 0.03 = turns 3 % further from centre than commanded
+    beam=0.0,        # beam width (°); TF-Luna ≈ 2°, so at edges it returns a mix of near and far
 )
 
 
@@ -52,15 +62,26 @@ def sim_truth(room):
     return dict(area=area, room=area * H, objects=furn, free=area * H - furn)
 
 
-def cmd_simulate(args, cfg):
-    rng = np.random.default_rng(args.seed)
+def _directions(pan_deg, tilt_deg, cfg):
+    th = np.radians(pan_deg)
+    ph = np.radians((tilt_deg - cfg["tilt_horizon"]) * cfg["tilt_dir"])
+    return np.stack([np.cos(ph) * np.cos(th), np.cos(ph) * np.sin(th), np.sin(ph)], 1)
+
+
+def simulate(folder, cfg, n_positions=3, seed=1, errors=None):
+    """Writes <folder>/asukoht<k>_{a,b}.csv like a real scan; returns the true volumes."""
+    e = {**SIM_ERRORS, **(errors or {})}
+    rng = np.random.default_rng(seed)
     room = SIM_ROOM
-    positions = [(2.3, 1.6), (3.6, 2.3), (1.9, 0.9), (0.8, 3.1)][: args.asukohti]
-    os.makedirs(args.kaust, exist_ok=True)
+    positions = [(2.3, 1.6), (3.6, 2.3), (1.9, 0.9), (0.8, 3.1)][:n_positions]
+    os.makedirs(folder, exist_ok=True)
     pans = np.arange(cfg["pan_min"], cfg["pan_max"] + 1, cfg["pan_step"])
     tilts = np.arange(cfg["tilt_min"], cfg["tilt_max"] + 1, cfg["tilt_step"])
     PP, TT = np.meshgrid(pans, tilts, indexing="ij")
     PP, TT = PP.ravel().astype(float), TT.ravel().astype(float)
+    # beam = centre ray + 4 rays around it; their mean distance is what the sensor reports
+    w = e["beam"] / 3
+    beam_offsets = [(0, 0), (w, 0), (-w, 0), (0, w), (0, -w)] if w else [(0, 0)]
     for k, (x, y) in enumerate(positions, 1):
         yaw = rng.uniform(0, 360)
         tilt_err = rng.normal(0, 0.8, 2)  # scanner is not perfectly level
@@ -70,22 +91,32 @@ def cmd_simulate(args, cfg):
             R = (rz(math.radians(yaw + extra))
                  @ np.array(_rot_xy(math.radians(tilt_err[0]), math.radians(tilt_err[1]))))
             base = np.array([x + shift[0], y + shift[1], 1.20])
-            th = np.radians(PP)
-            ph = np.radians((TT - cfg["tilt_horizon"]) * cfg["tilt_dir"])
-            d = np.stack([np.cos(ph) * np.cos(th), np.cos(ph) * np.sin(th), np.sin(ph)], 1)
+            # where the servos really point (the CSV gets the commanded angles, like the firmware)
+            pan_r = 90 + (PP - 90) * (1 + e["scale"])
+            tilt_r = 90 + (TT - 90) * (1 + e["scale"])
+            if e["backlash"]:
+                up = ((PP - cfg["pan_min"]) // cfg["pan_step"]) % 2 == 0  # snake: even columns go up
+                tilt_r -= np.where(up, 1, -1) * e["backlash"] / 2
+            if e["jitter"]:
+                pan_r += rng.normal(0, e["jitter"], len(PP))
+                tilt_r += rng.normal(0, e["jitter"], len(PP))
             axis_w = base + R @ np.array([0, 0, cfg["axis_height"]])
-            dw = d @ R.T
-            t = sim_raycast(axis_w, dw, room) - cfg["lidar_offset"]
-            dist = (t + rng.normal(0, 0.015, len(t))) * 100
+            t = np.mean([sim_raycast(axis_w, _directions(pan_r + dp, tilt_r + dt, cfg) @ R.T, room)
+                         for dp, dt in beam_offsets], axis=0) - cfg["lidar_offset"]
+            dist = (t + rng.normal(0, e["noise"] + e["noise_rel"] * t)) * 100
             amp = np.where(rng.random(len(t)) < 0.02, 50, 800)  # 2% weak readings
-            path = os.path.join(args.kaust, f"asukoht{k}_{half}.csv")
+            path = os.path.join(folder, f"asukoht{k}_{half}.csv")
             with open(path, "w", newline="") as f:
                 w = csv.writer(f)
                 w.writerow(["pan", "tilt", "dist_cm", "amp"])
                 for row in zip(PP.astype(int), TT.astype(int), np.round(dist).astype(int), amp):
                     w.writerow(row)
         print(f"  asukoht{k}: ({x}, {y}), pööre {yaw:.0f}°, poolte vahe 180° {delta:+.1f}°")
-    tr = sim_truth(room)
+    return sim_truth(room)
+
+
+def cmd_simulate(args, cfg):
+    tr = simulate(args.kaust, cfg, args.asukohti, args.seed)
     print(f"Simuleeritud tuba: pindala {tr['area']:.2f} m², ruumala {tr['room']:.2f} m³, "
           f"mööbel {tr['objects']:.2f} m³, vaba õhk {tr['free']:.2f} m³")
     print(f"Andmed kaustas {args.kaust}. Analüüs: python ruumala.py arvuta {args.kaust}")
