@@ -177,3 +177,5 @@ Simulated room: 4.6 × 3.7 × 2.55 m (42.33 m³), with a column in one corner, a
 | all of the above | −4.0 % / −5.2 % | 3.84 m³ |
 
 The room volume comes out slightly small because the floor area does (the height is accurate to ~1 cm). The furniture volume usually comes out slightly large, because it also includes areas that no scanner saw. The noise levels above are estimates from the TF-Luna datasheet; measure your own (e.g. repeated `READ` at a wall) to see which row applies. Mirrors, windows and dark surfaces are not simulated.
+
+How the results got here, step by step, with before/after images: [PROGRESS.md](PROGRESS.md).
