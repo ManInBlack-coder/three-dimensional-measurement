@@ -1,0 +1,26 @@
+Laen 6 skaneeringut kaustast sim
+  asukoht1_a: 8112 punkti, kalle 0.7°
+  asukoht1_b: 8103 punkti, kalle 0.6°
+  asukoht2_a: 8111 punkti, kalle 0.2°
+  asukoht2_b: 8103 punkti, kalle 0.1°
+  asukoht3_a: 8127 punkti, kalle 0.6°
+  asukoht3_b: 8125 punkti, kalle 0.7°
+
+Skaneeringute kokkusobitamine:
+  asukoht1: tugipunkt
+  asukoht3: pööre  112.6°, asukoht (0.44, 0.65) m, seinte kattuvus 59.5%
+  asukoht2: pööre  135.7°, asukoht (-1.40, -0.54) m, seinte kattuvus 51.1%
+  asukoht1: poolte vahe 180° -8.9°
+  asukoht3: poolte vahe 180° +0.0°
+  asukoht2: poolte vahe 180° +2.8°
+
+================ TULEMUS ================
+Lae kõrgus:              2.56 m
+Põranda pindala:        16.34 m²
+TOA RUUMALA:            41.76 m³
+Vaba õhk:               37.49 m³
+Mööbel + varjatud ala:   4.27 m³ (10.2% toast)
+=========================================
+Märkus: seintes olid augud, need suleti kuni 40 cm ulatuses.
+Märkus: 'mööbel + varjatud' sisaldab ka alasid, mida ükski skanner ei näinud.
+        Rohkem asukohti = väiksem varjatud ala = täpsem mööbli ruumala.

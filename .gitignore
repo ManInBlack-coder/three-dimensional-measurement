@@ -1,0 +1,8 @@
+__pycache__/
+.venv/
+venv/
+.DS_Store
+
+# scans and results produced by ruumala.py (default folders)
+skaneeringud/
+sim_skaneeringud/
