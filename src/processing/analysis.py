@@ -42,7 +42,7 @@ def footprint(P, origins, ceil, res=0.025, band=(0.45, 0.08), close_m=0.25):
         leak = core[0].any() or core[-1].any() or core[:, 0].any() or core[:, -1].any()
         if not leak:
             break
-    inside = ndimage.distance_transform_edt(~core) <= r + 0.5
+    inside = ndimage.distance_transform_edt(~core) <= r + 1  # up to the wall pixel centres
     area = inside.sum() * res * res
     fp = inside
     return dict(area=area, mask=fp, inside=inside, org=org, res=res, leak=leak, wall_xy=xy, close=cm)

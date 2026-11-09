@@ -52,9 +52,9 @@ A simulated 4.6 × 3.7 × 2.55 m room with four pieces of furniture, scanned fro
 
 | | Actual | Measured ([`simuleeritud_tulemus.txt`](examp/simuleeritud_tulemus.txt)) |
 |---|---|---|
-| Room volume | 42.33 m³ | 41.76 m³ |
-| Free air | 38.30 m³ | 37.49 m³ |
-| Furniture + hidden | 4.03 m³ | 4.27 m³ |
+| Room volume | 42.33 m³ | 41.93 m³ |
+| Free air | 38.30 m³ | 37.80 m³ |
+| Furniture + hidden | 4.03 m³ | 4.13 m³ |
 
 Technical details are under [How it works (technical)](#how-it-works-technical).
 
@@ -103,7 +103,7 @@ three-dim/
 ### Mechanics
 
 - The pan servo rotates horizontally 0–180°, the tilt servo vertically 0–180°.
-- Mount the LiDAR so that it points straight ahead (level) when the tilt servo is at **60°**. The beam then sweeps from 60° below the horizon, over the top, to 30° behind, which gives the two halves some overlap. If your mounting is different, find the right angle with the `kalibreeri` command and pass it as `--tilt-horizon`.
+- Mount the LiDAR so that it points straight ahead (level) when the tilt servo is at **60°**. The beam then sweeps from 60° below the horizon, over the top, to 30° behind, which gives the two halves some overlap. It doesn't have to be exact: `kalibreeri` measures the real level angle (see Usage).
 - If a larger tilt angle moves the beam down instead of up, use `--tilt-dir -1`.
 
 ## Installation
@@ -121,7 +121,7 @@ python ruumala.py simuleeri
 python ruumala.py arvuta sim_skaneeringud
 python benchmark.py          # accuracy over many simulated scans, with servo/LiDAR errors (~5 min)
 
-# 1) calibrate (once)
+# 1) calibrate (once): scanner level, ~1 m in front of a flat empty wall, LiDAR facing it
 python ruumala.py kalibreeri --port COM3
 
 # 2) scan at each position (halves A and B; rotate the base 180° by hand in between)
@@ -129,9 +129,11 @@ python ruumala.py skanni --port COM3 --nimi asukoht1
 python ruumala.py skanni --port COM3 --nimi asukoht2
 python ruumala.py skanni --port COM3 --nimi asukoht3
 
-# 3) compute
-python ruumala.py arvuta skaneeringud
+# 3) compute, with the three values that kalibreeri printed
+python ruumala.py --tilt-horizon 61.2 --pan-skaala 1.021 --tilt-skaala 0.987 arvuta skaneeringud
 ```
+
+Calibration sweeps both servos across the wall. A flat wall's distance follows `r = d / cos(angle)`, so fitting that curve gives the exact level angle and how many real degrees each servo turns per commanded degree. Cheap servos are often a few % off, and in the simulator an uncalibrated 3 % error alone made the result 9 % too small.
 
 Results are written to the `skaneeringud/` folder:
 - `tulemus.txt`: volumes and the registration log
@@ -151,21 +153,27 @@ On Linux the port is usually `/dev/ttyUSB0`. Scanning one half at 2° steps take
 
 ## How it works (technical)
 
-1. **Points**: `x = r·cos φ·cos θ`, `y = r·cos φ·sin θ`, `z = r·sin φ` (θ = pan, φ = tilt − level angle).
+0. **Calibration**: least-squares fit of `r = d / cos(s·(angle − c))` to a pan sweep and a tilt sweep across a flat wall gives the level angle `c` and each servo's scale `s`.
+1. **Points**: `x = r·cos φ·cos θ`, `y = r·cos φ·sin θ`, `z = r·sin φ` (θ = pan × pan scale, φ = (tilt − level angle) × tilt scale). Before that, range noise is cut about 2× with a 3×3 median over neighbouring beams (only where the median is within 20 cm, so edges stay sharp), and **flying points** are dropped: where the ~2° beam half-hits an edge, the sensor averages the near and far surface and the point floats in between. Such points form a "veil" along the beams, so points whose surface is seen at more than 75° from head-on are removed.
 2. **Levelling**: in each scan the ceiling plane is found with RANSAC and rotated to be exactly horizontal.
 3. **Registration**: positions are added greedily. The initial guess comes from FFT correlation of a top-view wall image (all rotations in 2° steps), refined with 4-DOF point-to-plane ICP. Poses are scored by wall overlap and **contradictions**: a wall must not be in a place that some scanner saw as empty. The exact angle between halves A and B is also computed.
-4. **Floor and ceiling**: the lowest and highest large horizontal surface.
+4. **Floor and ceiling**: the lowest and highest large horizontal surface (the top of each histogram peak, so noise doesn't push them apart).
 5. **Floor plan**: wall points near the ceiling (above the furniture). Holes are closed, the interior is flood-filled starting from the scanner positions, and the area is summed up. This way the walls automatically extend behind cabinets.
 6. **Room volume** = area × height.
 7. **Free air**: the room is divided into 4 cm cubes. A cube is free if some scanner saw past it. The rest is furniture or hidden area.
 
 ## Test results (simulator)
 
-Simulated room: 4.6 × 3.7 × 2.55 m, with a column in one corner, a wardrobe, a sofa, a chest of drawers and a shelf. The data has ±1.5 cm measurement noise, the scanner is tilted by up to 1°, and the base is rotated by hand with up to ±12° error.
+Simulated room: 4.6 × 3.7 × 2.55 m (42.33 m³), with a column in one corner, a wardrobe, a sofa, a chest of drawers and a shelf (4.03 m³ of furniture). Every run the scanner is tilted by up to ~1°, the base is turned by hand with up to ±12° error, and the user calibrates first on a simulated wall. `python benchmark.py` adds real-world errors one at a time (3 positions, 5 runs each):
 
-| | Actual | Measured (10 runs) |
+| Scenario | Room volume error (mean / worst) | Furniture |
 |---|---|---|
-| Room volume | 42.33 m³ | 41.7–42.3 m³ |
-| Furniture | 4.03 m³ | 4.1–4.4 m³ (3–4 positions), ~5 m³ (2), ~7 m³ (1) |
+| ideal (1.5 cm noise) | −1.2 % / −2.0 % | 4.15 m³ |
+| noise 2 cm + 1 % of distance | −2.5 % / −3.8 % | 4.08 m³ |
+| servo backlash 1° | −0.8 % / −2.0 % | 4.18 m³ |
+| servo jitter 0.5° | −1.3 % / −2.7 % | 4.29 m³ |
+| servo turns 3 % too far | −1.4 % / −2.4 % | 4.12 m³ |
+| beam 2° wide (TF-Luna) | −1.7 % / −2.7 % | 4.06 m³ |
+| all of the above | −4.0 % / −5.2 % | 3.84 m³ |
 
-The furniture volume always comes out slightly larger than the actual value, because it also includes areas that no scanner saw. With real hardware, servo inaccuracy (±1°) and errors from reflective surfaces are added on top, so expect an accuracy of about 2–5%.
+The room volume comes out slightly small because the floor area does (the height is accurate to ~1 cm). The furniture volume usually comes out slightly large, because it also includes areas that no scanner saw. The noise levels above are estimates from the TF-Luna datasheet; measure your own (e.g. repeated `READ` at a wall) to see which row applies. Mirrors, windows and dark surfaces are not simulated.

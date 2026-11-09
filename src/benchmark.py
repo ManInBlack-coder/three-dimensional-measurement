@@ -19,9 +19,10 @@ from multiprocessing import Pool
 
 import numpy as np
 
+from hardware.scanner import calibration
 from processing.analysis import analyze
 from ruumala import DEFAULTS
-from simulation.simulator import simulate
+from simulation.simulator import simulate, simulate_wall_sweeps
 
 ALL_ERRORS = dict(noise=0.02, noise_rel=0.01, backlash=1.0, jitter=0.5, scale=0.03, beam=2.0)
 SCENARIOS = {
@@ -37,9 +38,12 @@ SCENARIOS = {
 
 def run(job):
     name, errors, seed, n_pos = job
-    cfg = dict(DEFAULTS)
+    true_cfg = dict(DEFAULTS)  # how the simulated scanner is really built
+    # like a real user: calibrate first (with the same errors), then compute with those values
+    sweeps = simulate_wall_sweeps(true_cfg, seed, errors)
+    cfg = {**true_cfg, **calibration(*sweeps, true_cfg["lidar_offset"])}
     with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()) as out:
-        truth = simulate(d, cfg, n_pos, seed, errors)
+        truth = simulate(d, true_cfg, n_pos, seed, errors)
         try:
             res = analyze(d, cfg)
         except Exception as e:  # a crash is a result too

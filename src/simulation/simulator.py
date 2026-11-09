@@ -115,6 +115,29 @@ def simulate(folder, cfg, n_positions=3, seed=1, errors=None):
     return sim_truth(room)
 
 
+def simulate_wall_sweeps(cfg, seed=1, errors=None, dist=1.0):
+    """What `kalibreeri` would measure in front of a flat wall, with the same servo/LiDAR errors.
+    Returns (pan angles, ranges m, tilt angles, ranges m)."""
+    e = {**SIM_ERRORS, **(errors or {})}
+    rng = np.random.default_rng(seed + 1000)
+    az0 = rng.normal(0, 5)  # the user never points it at the wall exactly
+
+    def real(cmd):  # where the servo really points; sweeps go one way, so backlash is a fixed lag
+        a = 90 + (np.asarray(cmd, float) - 90) * (1 + e["scale"]) - e["backlash"] / 2
+        return a + rng.normal(0, e["jitter"], a.shape) if e["jitter"] else a
+
+    def measure(az, el):  # flat wall `dist` away from the axes, straight ahead at az = 0
+        t = dist / (np.cos(np.radians(az)) * np.cos(np.radians(el))) - cfg["lidar_offset"]
+        return t + rng.normal(0, e["noise"] + e["noise_rel"] * t)
+
+    h = round(cfg["tilt_horizon"])
+    level = (real(h) - cfg["tilt_horizon"]) * cfg["tilt_dir"]
+    pan = np.arange(45, 136)
+    tilt = np.arange(max(h - 45, 0), min(h + 45, 180) + 1)
+    return (pan, measure(real(pan) - 90 - az0, level),
+            tilt, measure(real(90) - 90 - az0, (real(tilt) - cfg["tilt_horizon"]) * cfg["tilt_dir"]))
+
+
 def cmd_simulate(args, cfg):
     tr = simulate(args.kaust, cfg, args.asukohti, args.seed)
     print(f"Simuleeritud tuba: pindala {tr['area']:.2f} m², ruumala {tr['room']:.2f} m³, "
