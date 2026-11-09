@@ -8,6 +8,56 @@ An ESP32 turns a LiDAR with two servos and measures the room in every direction.
 
 You don't need to measure where the scanner stood: the program works this out from the shape of the walls.
 
+## How the measurement works, in simple terms
+
+**1. One beam gives one point.** The TF-Luna is a laser rangefinder: it measures how far away the thing it points at is. The servos turn it left–right (pan) and up–down (tilt), so the program always knows which way the beam went. Direction + distance = one point on a wall, the floor, the ceiling or a piece of furniture. Repeat this every 2° in all directions and you get a cloud of about 16,000 points per position.
+
+**2. Several positions are merged into one.** From one spot you can't see behind furniture, so the room is scanned from 3–4 places. Each scan comes out in its own coordinates, because the program doesn't know where you put the scanner. It turns and shifts the scans until their walls line up, like laying sheets of tracing paper on top of each other until the drawings match. Only the top part of the walls, near the ceiling, is used for this, because furniture rarely reaches that high.
+
+**3. Room volume = floor area × height.** The floor and the ceiling are the lowest and the highest large flat surfaces, and the distance between them is the height. The floor plan is drawn from the wall points just under the ceiling, above the furniture, so the walls are known even where a wardrobe stands in front of them.
+
+**4. A beam proves that the air it passed through is empty.** On its way to the point it hits, the beam flies through empty air. So the space between the scanner and every measured point is known to be free. The program divides the room into 4 cm cubes. A cube that some beam passed through is air. Everything else is either furniture or space that no scanner could see.
+
+```
++----------------------------------------------+
+|                 *              *             |
+|              .           .                   |
+|           .        .                         |
+|        .     .                          ? ?  |
+|     .  .                +---------+ ? ? ? ?  |
+|  S . . . . . . . . . . *| cabinet | ? ? ? ?  |
+|     .  .                +---------+ ? ? ? ?  |
+|        .     .                          ? ?  |
+|           .        .                         |
+|              .           .                   |
+|                 *              *             |
++----------------------------------------------+
+
+S  scanner (top view)
+.  a beam passed here    -> known to be air
+*  the beam hit a surface -> one point in the cloud
+?  no beam reached here  -> counted as "furniture or hidden"
+```
+
+This is why more positions help: a scanner placed on the other side of the cabinet sees the `?` area, and that space moves from "hidden" to "air".
+
+### Example result
+
+A simulated 4.6 × 3.7 × 2.55 m room with four pieces of furniture, scanned from 3 positions ([`examp/`](examp/)):
+
+![Floor plan and point cloud of the simulated room](examp/simuleeritud_tuba.png)
+
+- **Left, floor plan from above.** Blue is the floor area. Black dots are the wall points near the ceiling. Orange is furniture or hidden space (darker = taller). Red ▲ marks the scanner positions. The notch in the top-right corner is a column, and it correctly counts as part of the wall, not as furniture.
+- **Right, the merged point cloud.** The ceiling is hidden so you can see inside.
+
+| | Actual | Measured ([`simuleeritud_tulemus.txt`](examp/simuleeritud_tulemus.txt)) |
+|---|---|---|
+| Room volume | 42.33 m³ | 41.76 m³ |
+| Free air | 38.30 m³ | 37.49 m³ |
+| Furniture + hidden | 4.03 m³ | 4.27 m³ |
+
+Technical details are under [How it works (technical)](#how-it-works-technical).
+
 ## Folders
 
 ```
@@ -93,7 +143,7 @@ On Linux the port is usually `/dev/ttyUSB0`. Scanning one half at 2° steps take
 - Mirrors and windows create false points. The program tolerates small holes, but large mirrors are better covered.
 - A `<- KONTROLLI!` ("check!") mark in the log means the alignment of some position was uncertain. Look at `tuba.png`: if the walls are doubled, rescan that position.
 
-## How it works
+## How it works (technical)
 
 1. **Points**: `x = r·cos φ·cos θ`, `y = r·cos φ·sin θ`, `z = r·sin φ` (θ = pan, φ = tilt − level angle).
 2. **Levelling**: in each scan the ceiling plane is found with RANSAC and rotated to be exactly horizontal.
